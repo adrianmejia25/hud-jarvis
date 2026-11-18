@@ -1,0 +1,14 @@
+{
+  "name": "hud-jarvis",
+  "description": "Animated HUD theme for the Claude Code desktop app",
+  "owner": {
+    "name": "adrianmejia25"
+  },
+  "plugins": [
+    {
+      "name": "hud-jarvis",
+      "source": "./",
+      "description": "Animated cyan HUD backdrop with dark glass and matching colors for the Code tab of the Claude desktop app"
+    }
+  ]
+}

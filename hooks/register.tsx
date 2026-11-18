@@ -10,14 +10,36 @@ const ICE = '#7ff3ff'
 const AMBER = '#ffb02e'
 const DIM = '#0e5f7a'
 
+// Lienzo de diseño: la escena central se dibuja en 1920×1080 y se escala a la ventana.
 const W = 1920
 const H = 1080
-// La app tapa con la barra lateral unos 360 px a la izquierda, así que el centro
-// de lo que se ve queda a la derecha del centro de la ventana: el reactor va ahí.
-const LEFT = 400 // borde izquierdo de lo visible, con margen
-const CX = 1140
+// La app tapa con la barra lateral unos 360 px reales a la izquierda. Es un ancho
+// fijo en píxeles, no una fracción de la ventana, así que lo que se alinea con ella
+// (escala izquierda, esquinas) va anclado en píxeles y no se escala.
+const SIDEBAR = 360
+const LEFT = SIDEBAR + 40 // borde izquierdo de lo visible, con margen
+const CX = SIDEBAR + (W - SIDEBAR) / 2 // 1140: centro de lo visible en el lienzo
 const CY = 545 // la ventana recorta ~30 px arriba y abajo y la barra del título tapa los de arriba
 const TOP = 100 // primera línea visible bajo la barra del título
+
+// Las medidas de diseño son píxeles de pantalla de 1920×1080 con escala de Windows
+// al 125%, donde el fondo mide 1536 píxeles CSS de ancho: un píxel de diseño son
+// 0,8 píxeles CSS. Las capas en píxeles (`ancla`, cuadrícula) se escalan por K
+// para que tamaños y márgenes sean los mismos en píxeles CSS en cualquier pantalla.
+const K = 0.8
+
+// Capa escalada: la escena entra entera en la ventana (meet) y queda centrada en lo
+// que deja la barra lateral. La capa empieza en x = SIDEBAR/2 y mide lo que la
+// ventana, así que su centro cae en 50% + SIDEBAR/2, el centro de lo visible.
+// `align` decide a qué borde se pega cuando sobra alto: centro, arriba o abajo.
+const capa = (align: 'xMidYMid' | 'xMidYMin' | 'xMidYMax', inner: string) =>
+  `<svg x="${(SIDEBAR * K) / 2}" y="0" width="100%" height="100%" viewBox="${CX - W / 2} 0 ${W} ${H}" ` +
+  `preserveAspectRatio="${align} meet" overflow="visible">${inner}</svg>`
+
+// Capa en píxeles de diseño, sin escalar con la ventana, con el origen en un borde
+// o esquina: x e y en "0", "50%" o "100%", y el contenido con coordenadas relativas.
+const ancla = (x: string, y: string, inner: string) =>
+  `<svg x="${x}" y="${y}" overflow="visible"><g transform="scale(${K})">${inner}</g></svg>`
 
 const pt = (r: number, a: number) => `${Math.round(CX + Math.cos(a) * r)} ${Math.round(CY + Math.sin(a) * r)}`
 
@@ -25,6 +47,7 @@ const circle = (r: number, stroke: string, sw: number, extra = '') =>
   `<circle cx="${CX}" cy="${CY}" r="${r}" fill="none" stroke="${stroke}" stroke-width="${sw}" ${extra}/>`
 
 // Grupo que gira alrededor del centro; si la app no anima, queda quieto.
+// Las animaciones son SMIL: la app no anima el CSS dentro del SVG.
 const spin = (seconds: number, reverse: boolean, inner: string) =>
   `<g>${inner}<animateTransform attributeName="transform" type="rotate" ` +
   `from="${reverse ? 360 : 0} ${CX} ${CY}" to="${reverse ? 0 : 360} ${CX} ${CY}" ` +
@@ -44,12 +67,6 @@ const ticks = (r: number, n: number, len: number, stroke: string, sw = 2) => {
 const arc = (r: number, a0: number, a1: number, stroke: string, sw: number) =>
   `<path d="M${pt(r, a0)}A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${pt(r, a1)}" fill="none" stroke="${stroke}" stroke-width="${sw}"/>`
 
-// Cuadrícula: fina cada 60 y marcada cada 240.
-let fine = ''
-let major = ''
-for (let x = 0; x <= W; x += 60) (x % 240 === 0 ? (major += `M${x} 0V${H}`) : (fine += `M${x} 0V${H}`))
-for (let y = 0; y <= H; y += 60) (y % 240 === 0 ? (major += `M0 ${y}H${W}`) : (fine += `M0 ${y}H${W}`))
-
 // Marcos de esquina.
 const corner = (x: number, y: number, sx: number, sy: number) =>
   `<path d="M${x} ${y + sy * 110}V${y}H${x + sx * 110}" fill="none" stroke="${CYAN}" stroke-width="4"/>` +
@@ -65,29 +82,31 @@ for (let k = 0, x = CX - 576; x <= CX + 576; k++, x += 24) {
   if (big) compassText += `<text x="${x}" y="${TOP + 52}" text-anchor="middle" font-family="monospace" font-size="18" fill="${ICE}">${names[(k / 4) % 8]}</text>`
 }
 
-// Escalas laterales con cifras.
+// Escalas laterales con cifras, con y relativa al centro vertical de la ventana:
+// la izquierda junto a la barra lateral y la derecha a 64 px del borde.
 let scaleL = ''
 let scaleR = ''
 let scaleText = ''
-for (let k = 0, y = CY - 230; y <= CY + 230; k++, y += 23) {
+for (let k = 0, y = -230; y <= 230; k++, y += 23) {
   const big = k % 5 === 0
   scaleL += `M${LEFT} ${y}h${big ? 34 : 18}`
-  scaleR += `M${W - 64} ${y}h${big ? -34 : -18}`
+  scaleR += `M-64 ${y}h${big ? -34 : -18}`
   if (big) scaleText += `<text x="${LEFT + 44}" y="${y + 6}" font-family="monospace" font-size="16" fill="${CYAN}">${String(120 - k * 4).padStart(3, '0')}</text>`
 }
 
 // Terreno en malla: filas de atrás hacia adelante, cada una tapa a la anterior.
+// Va un lienzo más allá por cada lado, para cubrir ventanas más anchas que 16:9.
 let terrain = ''
 for (let j = 0; j < 6; j++) {
   const t = j / 5
   const y0 = 720 + t * t * 300
   const amp = 8 + t * 56
   let pts = ''
-  for (let x = 0; x <= W; x += 80) {
+  for (let x = -W; x <= 2 * W; x += 80) {
     const y = y0 - amp * (0.5 + 0.5 * Math.sin(x / 150 + j * 1.7) * Math.cos(x / 61 + j))
     pts += `${x},${Math.round(y)} `
   }
-  terrain += `<polygon points="${pts}${W},${H} 0,${H}" fill="#02080f" fill-opacity="0.92" stroke="${CYAN}" stroke-opacity="${(0.18 + t * 0.7).toFixed(2)}" stroke-width="${(1 + t).toFixed(1)}"/>`
+  terrain += `<polygon points="${pts}${2 * W},${H} ${-W},${H}" fill="#02080f" fill-opacity="0.92" stroke="${CYAN}" stroke-opacity="${(0.18 + t * 0.7).toFixed(2)}" stroke-width="${(1 + t).toFixed(1)}"/>`
 }
 
 // Segmentos del reactor: 10 bloques en un anillo grueso.
@@ -98,20 +117,27 @@ const segsHi = circle(205, CYAN, 46, `stroke-dasharray="${(C / 10 - 14).toFixed(
 const text = (x: number, y: number, s: string, fill: string, anchor = 'start', size = 18) =>
   `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="monospace" font-size="${size}" fill="${fill}">${s}</text>`
 
-// Ticker de datos: líneas hexadecimales fijas en el margen derecho.
+// Ticker de datos: líneas hexadecimales fijas en el margen derecho (x relativa al borde).
 let ticker = ''
 for (let k = 0; k < 7; k++) {
   const hex = (0x3a7f + k * 0x1d3b) % 0xffff
-  ticker += text(W - 60, TOP + 130 + k * 20, `0x${hex.toString(16).toUpperCase().padStart(4, '0')} · ${(k * 37 + 12) % 100}`, k % 3 === 0 ? ICE : DIM, 'end', 13)
+  ticker += text(-60, TOP + 130 + k * 20, `0x${hex.toString(16).toUpperCase().padStart(4, '0')} · ${(k * 37 + 12) % 100}`, k % 3 === 0 ? ICE : DIM, 'end', 13)
 }
 
+// Sin viewBox en la raíz: sus unidades son píxeles de la ventana. La escena central
+// va en capas escaladas (`capa`) y lo que se alinea con los bordes, en `ancla`.
 const SVG =
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice">` +
+  `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">` +
   `<defs><radialGradient id="g" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="${CYAN}" stop-opacity="0.26"/><stop offset="0.45" stop-color="${CYAN}" stop-opacity="0.07"/><stop offset="1" stop-color="${CYAN}" stop-opacity="0"/></radialGradient>` +
-  `<linearGradient id="v" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#02080f" stop-opacity="0"/><stop offset="0.2" stop-color="#02080f" stop-opacity="0.5"/><stop offset="0.8" stop-color="#02080f" stop-opacity="0.5"/><stop offset="1" stop-color="#02080f" stop-opacity="0"/></linearGradient></defs>` +
-  `<rect width="${W}" height="${H}" fill="#02080f"/>` +
-  `<path d="${fine}" stroke="#06151f" stroke-width="1" fill="none"/>` +
-  `<path d="${major}" stroke="#0a2a3b" stroke-width="1.5" fill="none"/>` +
+  `<linearGradient id="v" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#02080f" stop-opacity="0"/><stop offset="0.2" stop-color="#02080f" stop-opacity="0.5"/><stop offset="0.8" stop-color="#02080f" stop-opacity="0.5"/><stop offset="1" stop-color="#02080f" stop-opacity="0"/></linearGradient>` +
+  // Cuadrícula en píxeles: fina cada 60 y marcada cada 240, para cualquier tamaño.
+  `<pattern id="gf" width="60" height="60" patternUnits="userSpaceOnUse" patternTransform="scale(${K})"><path d="M60 0H0V60" fill="none" stroke="#06151f" stroke-width="1"/></pattern>` +
+  `<pattern id="gm" width="240" height="240" patternUnits="userSpaceOnUse" patternTransform="scale(${K})"><path d="M240 0H0V240" fill="none" stroke="#0a2a3b" stroke-width="1.5"/></pattern></defs>` +
+  `<rect width="100%" height="100%" fill="#02080f"/>` +
+  `<rect width="100%" height="100%" fill="url(#gf)"/>` +
+  `<rect width="100%" height="100%" fill="url(#gm)"/>` +
+  // Escena central, escalada y centrada en lo visible.
+  capa('xMidYMid',
   `<circle cx="${CX}" cy="${CY}" r="640" fill="url(#g)"/>` +
   // Anillos exteriores y reactor, a media intensidad para que el texto se lea.
   `<g opacity="0.42">` +
@@ -129,8 +155,9 @@ const SVG =
   `<circle cx="${CX}" cy="${CY}" r="22" fill="${ICE}"><animate attributeName="r" values="22;27;22" dur="3s" repeatCount="indefinite"/><animate attributeName="fill-opacity" values="1;0.65;1" dur="3s" repeatCount="indefinite"/></circle>` +
   ticks(108, 60, 12, ICE, 2) +
   `</g>` +
-  // Velo de lectura: oscurece la franja donde va el texto del chat.
-  `<rect x="${CX - 640}" y="0" width="1280" height="${H}" fill="url(#v)"/>` +
+  // Velo de lectura: oscurece la franja donde va el texto del chat. Sobra alto
+  // por arriba y por abajo para cubrir ventanas más altas que 16:9.
+  `<rect x="${CX - 640}" y="${-H}" width="1280" height="${3 * H}" fill="url(#v)"/>` +
   // Anillos con movimiento, por encima del velo para que se note que giran:
   // son arcos finos y dispersos, así que casi no tapan el texto.
   `<g opacity="0.8">` +
@@ -138,39 +165,45 @@ const SVG =
   spin(24, false, circle(420, ICE, 1.5, 'stroke-dasharray="40 10 6 10"')) +
   `</g>` +
   // Retícula (solo las esquinas, lejos del texto)
-  `<g opacity="0.7"><path d="M${CX - 560} ${CY - 250}v-30h30M${CX + 560} ${CY - 250}v-30h-30M${CX - 560} ${CY + 250}v30h30M${CX + 560} ${CY + 250}v30h-30" fill="none" stroke="${AMBER}" stroke-width="3"/></g>` +
-  // Terreno
-  terrain +
-  // Brújula
+  `<g opacity="0.7"><path d="M${CX - 560} ${CY - 250}v-30h30M${CX + 560} ${CY - 250}v-30h-30M${CX - 560} ${CY + 250}v30h30M${CX + 560} ${CY + 250}v30h-30" fill="none" stroke="${AMBER}" stroke-width="3"/></g>`) +
+  // Terreno, pegado al borde de abajo.
+  capa('xMidYMax', terrain) +
+  // Brújula, pegada al borde de arriba.
+  capa('xMidYMin',
   `<g opacity="0.6"><line x1="${CX - 576}" y1="${TOP}" x2="${CX + 576}" y2="${TOP}" stroke="${CYAN}" stroke-width="2"/>` +
   `<path d="${compass}" stroke="${CYAN}" stroke-width="2" fill="none"/>` +
   compassText +
-  `<path d="M${CX - 10} ${TOP - 16}L${CX} ${TOP - 30}L${CX + 10} ${TOP - 16}Z" fill="${AMBER}"/></g>` +
-  // Escalas
-  `<path d="${scaleL}" stroke="${CYAN}" stroke-width="2"/><path d="${scaleR}" stroke="${CYAN}" stroke-width="2"/>` +
-  scaleText +
-  // Lecturas de esquina
+  `<path d="M${CX - 10} ${TOP - 16}L${CX} ${TOP - 30}L${CX + 10} ${TOP - 16}Z" fill="${AMBER}"/></g>`) +
+  // Escalas, a media altura de la ventana.
+  ancla('0', '50%', `<path d="${scaleL}" stroke="${CYAN}" stroke-width="2"/>` + scaleText) +
+  ancla('100%', '50%', `<path d="${scaleR}" stroke="${CYAN}" stroke-width="2"/>`) +
   // Lecturas solo en el margen derecho, fuera de la columna del texto, y tenues.
+  ancla('100%', '0',
   `<g opacity="0.55">` +
-  text(W - 60, TOP + 50, 'SISTEMA EN LÍNEA', ICE, 'end', 18) +
-  text(W - 60, TOP + 76, 'REACTOR 100%', CYAN, 'end', 16) +
-  text(W - 60, TOP + 100, 'ENLACE SEGURO', CYAN, 'end', 16) +
-  `</g>` +
-  corner(LEFT - 20, TOP - 14, 1, 1) +
-  corner(W - 40, TOP - 14, -1, 1) +
-  corner(LEFT - 20, H - 60, 1, -1) +
-  corner(W - 40, H - 60, -1, -1) +
+  text(-60, TOP + 50, 'SISTEMA EN LÍNEA', ICE, 'end', 18) +
+  text(-60, TOP + 76, 'REACTOR 100%', CYAN, 'end', 16) +
+  text(-60, TOP + 100, 'ENLACE SEGURO', CYAN, 'end', 16) +
+  `</g>`) +
+  // Marcos de esquina: los de la izquierda junto a la barra lateral, los de la
+  // derecha a 40 px del borde, arriba bajo la barra del título y abajo a 60 px.
+  ancla('0', '0', corner(LEFT - 20, TOP - 14, 1, 1)) +
+  ancla('100%', '0', corner(-40, TOP - 14, -1, 1)) +
+  ancla('0', '100%', corner(LEFT - 20, -60, 1, -1)) +
+  ancla('100%', '100%', corner(-40, -60, -1, -1)) +
   // Adornos del margen derecho, fuera de la columna del texto y muy tenues:
   // ticker de datos, caja de objetivo con mira y dos microglitches.
-  `<g opacity="0.4">${ticker}` +
-  `<path d="M${W - 118} ${CY + 40}v-16h16M${W - 62} ${CY + 40}v-16h-16M${W - 118} ${CY + 96}v16h16M${W - 62} ${CY + 96}v16h-16" fill="none" stroke="${AMBER}" stroke-width="2"/>` +
-  `<path d="M${W - 90} ${CY + 56}v24M${W - 102} ${CY + 68}h24" stroke="${CYAN}" stroke-width="1.5"/>` +
-  text(W - 60, CY + 134, 'OBJ 01 · FIJADO', ICE, 'end', 13) +
+  ancla('100%', '0', `<g opacity="0.4">${ticker}</g>` +
+  `<rect x="-150" y="${TOP + 330}" width="90" height="2" fill="${ICE}" opacity="0"><animate attributeName="opacity" values="0;0;0.7;0;0;0.5;0;0" keyTimes="0;0.5;0.52;0.55;0.8;0.81;0.84;1" dur="7s" repeatCount="indefinite"/></rect>`) +
+  ancla('100%', '50%', `<g opacity="0.4">` +
+  `<path d="M-118 40v-16h16M-62 40v-16h-16M-118 96v16h16M-62 96v16h-16" fill="none" stroke="${AMBER}" stroke-width="2"/>` +
+  `<path d="M-90 56v24M-102 68h24" stroke="${CYAN}" stroke-width="1.5"/>` +
+  text(-60, 134, 'OBJ 01 · FIJADO', ICE, 'end', 13) +
   `</g>` +
-  `<rect x="${W - 150}" y="${TOP + 330}" width="90" height="2" fill="${ICE}" opacity="0"><animate attributeName="opacity" values="0;0;0.7;0;0;0.5;0;0" keyTimes="0;0.5;0.52;0.55;0.8;0.81;0.84;1" dur="7s" repeatCount="indefinite"/></rect>` +
-  `<rect x="${W - 130}" y="${CY + 250}" width="60" height="2" fill="${CYAN}" opacity="0"><animate attributeName="opacity" values="0;0;0.6;0;0" keyTimes="0;0.3;0.32;0.36;1" dur="11s" repeatCount="indefinite"/></rect>` +
-  // Barrido de escaneo
-  `<rect x="0" y="0" width="${W}" height="4" fill="${ICE}" fill-opacity="0.45"><animate attributeName="y" values="${TOP};${H - 40};${TOP}" dur="10s" repeatCount="indefinite"/></rect>` +
+  `<rect x="-130" y="250" width="60" height="2" fill="${CYAN}" opacity="0"><animate attributeName="opacity" values="0;0;0.6;0;0" keyTimes="0;0.3;0.32;0.36;1" dur="11s" repeatCount="indefinite"/></rect>`) +
+  // Barrido de escaneo: capa estirada a la ventana (0-1000 de alto), así baja de
+  // la barra del título (~9%) hasta cerca del borde de abajo en cualquier tamaño.
+  `<svg width="100%" height="100%" viewBox="0 0 100 1000" preserveAspectRatio="none">` +
+  `<rect x="0" y="0" width="100" height="4" fill="${ICE}" fill-opacity="0.45"><animate attributeName="y" values="93;963;93" dur="10s" repeatCount="indefinite"/></rect></svg>` +
   `</svg>`
 
 // Colores a juego para la pestaña Code (solo modo oscuro): fondo azul marino,
@@ -192,6 +225,8 @@ const AMBER_SWAPS: [string, string][] = [
 ]
 // Una sola pasada, para que un color ya cambiado no se vuelva a cambiar.
 const SWAP_MAP = new Map(AMBER_SWAPS)
+// Diagnóstico: sin ninguna animación SMIL.
+const QUIETO = SVG.replace(/<animate[^>]*\/>/g, '')
 const SVG_AMBAR = SVG.replace(new RegExp(AMBER_SWAPS.map(([a]) => a).join('|'), 'g'), m => SWAP_MAP.get(m) ?? m)
 
 // Colores a juego, resaltado de código, colores de git y bordes más marcados.
@@ -234,7 +269,11 @@ const ambar = makeColors({
 })
 
 // Estados del HUD cian: el mismo dibujo, más rápido o con una capa breve encima.
-const encima = (svg: string, extra: string) => svg.replace('</svg>', extra + '</svg>')
+// Antes del último </svg>: el SVG tiene capas anidadas, cada una con su propio </svg>.
+const encima = (svg: string, extra: string) => {
+  const end = svg.lastIndexOf('</svg>')
+  return svg.slice(0, end) + extra + svg.slice(end)
+}
 const BG = '#02080f'
 const CIRC = (r: number) => 2 * Math.PI * r
 
@@ -245,16 +284,17 @@ const dibuja = (r: number, begin: number) =>
   `<animate attributeName="opacity" values="1;1;0" keyTimes="0;0.7;1" dur="3.4s" fill="freeze"/></circle>`
 const ARRANQUE =
   // opacity="0" de base: si la animación termina sin "congelar", la cortina no vuelve a tapar el HUD.
-  `<rect width="${W}" height="${H}" fill="${BG}" opacity="0"><animate attributeName="opacity" values="1;1;0" keyTimes="0;0.4;1" dur="3.4s" fill="freeze"/></rect>` +
+  `<rect width="100%" height="100%" fill="${BG}" opacity="0"><animate attributeName="opacity" values="1;1;0" keyTimes="0;0.4;1" dur="3.4s" fill="freeze"/></rect>` +
+  capa('xMidYMid',
   dibuja(140, 0.2) + dibuja(205, 0.5) + dibuja(470, 0.8) +
   `<text x="${CX}" y="${CY + 330}" text-anchor="middle" font-family="monospace" font-size="22" fill="${ICE}" opacity="0">INICIALIZANDO SISTEMAS` +
-  `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.75;1" dur="3.4s" fill="freeze"/></text>`
+  `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.2;0.75;1" dur="3.4s" fill="freeze"/></text>`)
 
 const VARIANTS = {
   cian: { scene: BACKDROP, name: 'cian', svg: encima(SVG, ARRANQUE), plain: SVG, bg: BG, tint: '#02121c', colors: cian },
   ambar: { scene: BACKDROP + '-ambar', name: 'ámbar', svg: SVG_AMBAR, plain: SVG_AMBAR, bg: '#0a0603', tint: '#140a03', colors: ambar },
-  // Diagnóstico: el mismo HUD sin ninguna animación SMIL.
-  quieto: { scene: BACKDROP + '-quieto', name: 'quieto', svg: SVG.replace(/<animate[^>]*\/>/g, ''), plain: SVG.replace(/<animate[^>]*\/>/g, ''), bg: BG, tint: '#02121c', colors: cian },
+  // Diagnóstico: el mismo HUD sin ninguna animación.
+  quieto: { scene: BACKDROP + '-quieto', name: 'quieto', svg: QUIETO, plain: QUIETO, bg: BG, tint: '#02121c', colors: cian },
 } satisfies Record<string, Variant & { plain: string }>
 
 type Engine = { theme: { set: (a: object) => Promise<{ isDrawn: boolean; reason?: string }> } }
@@ -296,25 +336,51 @@ const avisar = ($: { ui: { log: (m: string) => unknown } }, msg: string) => {
   $.ui.log(`hud: ${msg}`)
 }
 
-// El marco del SVG no tiene scripts: si la app lo pausa (oculto, split view,
-// mucho tiempo), nada lo reanuda. Cambiar el source obliga a crear un marco
-// nuevo, así que cada "recarga" sube este número y el SVG lo lleva dentro.
+// El marco del SVG no tiene scripts: si la app lo pausa (oculto, split view, y en
+// algunos equipos a los 20-25 s de crearlo), nada lo reanuda. Cambiar el source
+// obliga a crear un marco nuevo, así que cada "recarga" sube este número y el SVG
+// lo lleva dentro. Se recarga antes de esos 20 s para que no se quede quieto.
 let recarga = 0
-const RECARGA_MS = 10 * 60 * 1000
+const RECARGA_MS = 15 * 1000
 let reloj: { cancel: () => void } | undefined
+
+// Cuándo arrancó la escena y cuántos segundos llevaba en la última recarga: el
+// marco nuevo empieza cada animación en ese punto (begin negativo), así los giros
+// y el barrido siguen donde iban en vez de volver a empezar.
+let inicio = 0
+let desfase = 0
+// Lo que tarda la app en mostrar el marco nuevo: sin esto arrancaría atrasado.
+const CARGA_MS = 300
 
 const recargar = ($: { ui: { invalidate: (ev: 'ui.render') => void } }) => {
   recarga++
+  // Tras recargar el mod a mitad de sesión no hubo session.start: empieza aquí.
+  if (inicio === 0) inicio = Date.now()
+  desfase = Math.round((Date.now() - inicio + CARGA_MS) / 100) / 10
   $.ui.invalidate('ui.render')
 }
 
-// El arranque solo en el primer dibujo; las recargas usan el HUD sin cortina.
+// El arranque solo en el primer dibujo de cada sesión; las recargas usan el HUD
+// sin cortina. El proceso del mod sirve a varias sesiones, así que cada
+// session.start sube `recarga` (marco nuevo) y anota ese número como arranque.
+let arranque = 0
+const ARRANQUE_MS = 5000
+const arrancar = () => {
+  recarga++
+  arranque = recarga
+  inicio = Date.now()
+}
 const fuente = (v: { svg: string; plain: string }) =>
-  (recarga === 0 ? v.svg : v.plain).replace('</svg>', `<g id="r${recarga}"/></svg>`)
+  encima(
+    recarga === arranque ? v.svg : v.plain.replace(/repeatCount="indefinite"/g, `repeatCount="indefinite" begin="-${desfase}s"`),
+    `<g id="r${recarga}"/>`,
+  )
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'hud', description: 'Fondo HUD: /hud (cian), /hud ambar, /hud auto (por hora)' })
+    // Marco nuevo con la animación de arranque.
+    arrancar()
     await poner($, VARIANTS.cian)
     // Un solo reloj por proceso, aunque haya varias sesiones.
     reloj ??= $.clock.every(RECARGA_MS, () => recargar($))
@@ -322,9 +388,14 @@ export const register: Register = on => {
   })
 
   // Otra ventana o app se une a la sesión (split view, abrir la sesión): marco nuevo.
+  // La app también se une al abrir la sesión, justo después de session.start:
+  // en esos primeros segundos el marco nuevo conserva la animación de arranque.
   on('session.attach', async ($, e, next) => {
     const result = await next(e)
-    recargar($)
+    if (Date.now() - inicio < ARRANQUE_MS) {
+      arrancar()
+      $.ui.invalidate('ui.render')
+    } else recargar($)
     return result
   })
 

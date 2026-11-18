@@ -1,51 +1,76 @@
 # hud-jarvis
 
-Tema HUD para la app de escritorio de Claude Code: un fondo animado de anillos concéntricos en cian (reactor, brújula, escalas y terreno en malla) detrás de la conversación, con vidrio oscuro y colores a juego en modo oscuro.
+HUD theme for the Claude Code desktop app: an animated backdrop of concentric cyan rings (reactor, compass, scales and wireframe terrain) behind the conversation, with dark glass and matching dark-mode colors.
 
-Usa la función de temas de los mods: [Put a backdrop behind the conversation](https://code.claude.com/docs/en/plugins/mods/interface#put-a-backdrop-behind-the-conversation).
+It uses the theme feature of mods: [Put a backdrop behind the conversation](https://code.claude.com/docs/en/plugins/mods/interface#put-a-backdrop-behind-the-conversation).
 
-## Requisitos
+## Requirements
 
-- La app de escritorio de Claude, pestaña Code. El terminal no dibuja fondos.
-- Claude Code v2.1.324 o posterior.
-- Una cuenta que permita mods. Si tu organización los bloquea, el tema no carga.
-- Con un proveedor externo en vez de una cuenta de Claude, Claude Desktop v5.11492.5 o anterior no aplica los colores.
+- The Claude desktop app, Code tab. The terminal doesn't draw backdrops.
+- Claude Code v2.1.324 or later.
+- An account that allows mods. If your organization blocks them, the theme doesn't load.
+- With a third-party provider instead of a Claude account, Claude Desktop v5.11492.5 or earlier doesn't apply the colors.
 
-## Instalar
+## Install
 
-Clona el repo en la carpeta de skills de Claude Code. Este comando funciona en PowerShell y en Git Bash:
+In a session in the Code tab, run:
+
+```
+/plugin marketplace add adrianmejia25/hud-jarvis
+/plugin install hud-jarvis@hud-jarvis
+```
+
+Or from your shell:
+
+```bash
+claude plugin marketplace add adrianmejia25/hud-jarvis
+claude plugin install hud-jarvis@hud-jarvis
+```
+
+Then start a new session in the Code tab. The theme is applied when each session starts.
+
+If you installed an earlier copy by cloning this repo into `~/.claude/skills/hud-jarvis`, delete that folder first, so the mod doesn't load twice.
+
+### Install without the marketplace
+
+Clone the repo into your Claude Code skills folder. This command works in PowerShell and Git Bash:
 
 ```bash
 git clone https://github.com/adrianmejia25/hud-jarvis "$HOME/.claude/skills/hud-jarvis"
 ```
 
-O pídeselo a Claude en la pestaña Code:
+## Update
 
-> Clona https://github.com/adrianmejia25/hud-jarvis en la carpeta `.claude/skills/hud-jarvis` de mi usuario y verifica que quede `hooks/register.tsx` ahí.
+From your shell, then start a new session:
 
-Después abre una sesión nueva en la pestaña Code. El tema se aplica al iniciar cada sesión.
+```bash
+claude plugin marketplace update hud-jarvis
+claude plugin update hud-jarvis@hud-jarvis
+```
 
-## Comandos
+## Commands
 
-- `/hud`: HUD cian (por defecto, con animación de arranque).
-- `/hud ambar`: la misma escena en ámbar.
-- `/hud auto`: ámbar de 07:00 a 18:59, cian el resto.
-- `/hud quieto`: cian sin animaciones (diagnóstico).
+- `/hud`: cyan HUD (default, with a boot animation).
+- `/hud ambar`: the same scene in amber.
+- `/hud auto`: amber from 07:00 to 18:59, cyan the rest of the day.
+- `/hud quieto`: cyan with no animations (for troubleshooting).
 
-## Si no aparece
+## If it doesn't show
 
-Corre `/hud`: el mensaje dice si el fondo se pidió o por qué no se dibujó (por ejemplo, colores rechazados o una superficie que no dibuja fondos).
+Run `/hud`. Its message says whether the backdrop was requested, or why it wasn't drawn (for example, rejected colors or a surface that doesn't draw backdrops).
 
-## Notas
+## Notes
 
-- El dibujo está pensado para una ventana de unos 1920×1080 con la barra lateral abierta (unos 360 px). En otras pantallas el reactor puede quedar algo descentrado.
-- La animación corre en un marco sin scripts que la app puede pausar. Para que no se quede quieta, el tema lo recarga al abrir una sesión, cuando otra ventana se une a ella, con `/hud` y cada 10 minutos. Cada recarga reinicia los giros.
+- The scene adapts to any window size and aspect ratio: the reactor scales with the window, and the corner frames and side scales stay pinned to the window edges. It assumes the sidebar is open (about 360 px wide). With the sidebar closed, the scene sits about 180 px right of center.
+- The animation runs in a script-less frame that the app can pause; on some machines it stops 20 to 25 seconds after the frame is created. To keep it moving, the theme reloads the frame every 15 seconds, and also when another window attaches to the session and on `/hud`. Each reload resumes the animations where they were, so you may only notice a brief hitch.
 
-## Archivos
+## Files
 
-- `hooks/register.tsx`: la escena SVG, las variantes y los colores.
-- `hooks/make-colors.js` y `make-colors.d.ts`: helper generado de la documentación de Claude Code, copiado sin cambios.
+- `hooks/register.tsx`: the SVG scene, the variants and the colors.
+- `hooks/make-colors.js` and `make-colors.d.ts`: helper generated from the Claude Code documentation, copied unchanged.
+- `.claude-plugin/plugin.json`: the plugin manifest.
+- `.claude-plugin/marketplace.json`: the marketplace that lists this plugin.
 
-## Licencia
+## License
 
-MIT para el código de este repo (ver `LICENSE`). `hooks/make-colors.js` viene de la documentación de Claude Code y no está cubierto por esa licencia.
+MIT for the code in this repo (see `LICENSE`). `hooks/make-colors.js` comes from the Claude Code documentation and isn't covered by that license.
